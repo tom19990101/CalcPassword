@@ -1,0 +1,7 @@
+{
+	"bitcoin_url" : "http://127.0.0.1:18332",
+	"bitcoin_rpcuser" : "rpcuser",
+	"bitcoin_rpcpassword" : "rpcpassword",
+	"minSeedsGroup":2,
+	"maxSeedsGroup":5
+}
