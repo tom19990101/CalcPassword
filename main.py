@@ -17,7 +17,7 @@ class MainWindow(QMainWindow):
         self.startCalcBut.clicked.connect(self.startCalc)
         self.addSeedBut.clicked.connect(self.addSeed)
         self.threads = 8
-        self.minSeedsGroup = 3
+        self.minSeedsGroup = 1
         self.maxSeedsGroup = 5
         self.queene = queue.Queue()
         self.bitcoin_url = ""
