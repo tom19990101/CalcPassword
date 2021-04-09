@@ -33,6 +33,7 @@ class MainWindow(QMainWindow):
         if self.seedEdit.text() is not None and self.seedEdit.text() not in self.getSeedListData():
             self.seedlist.addItem(self.seedEdit.text().lower())
             self.keysJson['seedlist'].append(self.seedEdit.text().lower())
+            self.seedEdit.clear()
             self.save()
             
     def load(self):
@@ -83,16 +84,37 @@ class MainWindow(QMainWindow):
         self.password = None
         self.passwordLabel.setText("")
         s1 = "开始计算"
-        s2 = "计算中......"
+        s2 = "停   止"
+        
         if self.startCalcBut.text() == s1:
             self.startCalcBut.setText(s2)
-            self.startCalcBut.setEnabled(False)
+#            self.startCalcBut.setEnabled(False)
 
             if self.mainThread is None or not self.mainThread.is_alive():
-                self.mainThread = threading.Thread(target=self.mainCalc)
+                self.hasErrors = False
+                seeds = self.getSeedListData()
+                self.mainThread = threading.Thread(target=self.mainCalc, args=(seeds,))
                 self.mainThread.setDaemon(True)
                 self.mainThread.start()
+        elif self.startCalcBut.text() == s2:
+            self.hasErrors = True
+            th = threading.Thread(target=self.cleanQueue)
+            th.setDaemon(True)
+            th.start()
 
+    def cleanQueue(self):
+        s3 = "停止中"
+        self.startCalcBut.setEnabled(False)
+        while True:
+            time.sleep(0.01)
+            if not self.queene.empty():
+                self.queene.get()
+                self.info.setText("队列清理...... 长度:{0}".format(self.queene.qsize()))
+            else:
+                break
+        self.startCalcBut.setText("开始计算")
+        self.startCalcBut.setEnabled(True)
+        
     def closeEvent(self, event):
         quitMsgBox = QMessageBox()
         quitMsgBox.setWindowTitle('确认提示')
@@ -115,7 +137,7 @@ class MainWindow(QMainWindow):
             "method": method,
             "params": params
         })
-        return requests.post(self.bitcoin_url, auth=(self.bitcoin_rpcuser, self.bitcoin_rpcpassword), data=payload).json()
+        return requests.post(self.bitcoin_url, auth=(self.bitcoin_rpcuser, self.bitcoin_rpcpassword), data=payload, timeout=5).json()
 
     def getSeedListData(self):
         items = []
@@ -128,6 +150,10 @@ class MainWindow(QMainWindow):
         return items
 
     def genMainSeeds(self, seeds, positions):
+        
+        if self.hasErrors:
+            return
+        
         seed = []
         for ii in range(len(positions)):
             seed.append(seeds[positions[ii]])
@@ -136,18 +162,21 @@ class MainWindow(QMainWindow):
             if s in self.seedsJson['seeds']:
                 self.info.setText("这组种子已经测试过！")
             else:
-                self.hasErrors = False
                 self.mainSeeds(s)
+
                 while True:
-                    time.sleep(2)
-                    if self.password is not None:
+                    time.sleep(0.1)
+                    if self.password is not None or self.hasErrors:
                         return
                     if self.queene.empty():
+                        try:
+                            self.callBitcoinByRpc('walletpassphrase', ['1234', 10])
+                        except:
+                            self.hasErrors = True
                         if not self.hasErrors and s not in self.seedsJson['seeds']:
-                            self.seedsJson['seeds'].append("".join(s))
+                            self.seedsJson['seeds'].append(s)
                             self.save()
                         break;
-                
         except:
             pass
         
@@ -160,11 +189,13 @@ class MainWindow(QMainWindow):
             else:
                 positions[i] = 0
 
-    def mainCalc(self):
+    def mainCalc(self, seeds):
         
         while True:
+            time.sleep(0.02)
             if not self.queene.empty():
                 self.queene.get()
+                self.info.setText("队列清理...... 长度{0}".format(self.queene.qsize()))
             else:
                 break
         
@@ -173,7 +204,7 @@ class MainWindow(QMainWindow):
             thread.setDaemon(True)
             thread.start()
         
-        seeds = self.getSeedListData()
+#        seeds = self.getSeedListData()
         if seeds is not None and len(seeds) > 0:
             for group in range(self.minSeedsGroup, self.maxSeedsGroup):
                 posit = []
@@ -183,15 +214,17 @@ class MainWindow(QMainWindow):
         
         while True:
             time.sleep(2)
+            if self.hasErrors:
+                return
             if self.queene.empty() or self.password is not None:
                 self.startCalcBut.setText("开始计算")
-                self.startCalcBut.setEnabled(True)
+#                self.startCalcBut.setEnabled(True)
                 break
     
     def addToQueue(self, seed):
         self.queene.put(seed)
-        if self.queene.qsize() >= 30000:
-            time.sleep(3)
+        if self.queene.qsize() >= 1000:
+            time.sleep(5)
         
     
     def mainSeeds(self, seeds):
@@ -200,7 +233,8 @@ class MainWindow(QMainWindow):
         for i in range(len(seeds)):
             if not self.isChar(seeds[i]):
                 continue;
-            
+            if self.hasErrors:
+                return
             seedsTmp = list("".join(seeds).lower())
             seedsTmp[i] = seedsTmp[i].upper()
 #            self.queene.put("".join(seedsTmp))
@@ -228,6 +262,9 @@ class MainWindow(QMainWindow):
     def subCalc(self):
         while(True):
             
+            if self.hasErrors:
+                return
+            
             if self.password is not None:
                 raise SuccessException("Sucess")
 #            print ("Queue Length: {0}" . format(self.queene.qsize()))
@@ -247,7 +284,7 @@ class MainWindow(QMainWindow):
                 #abCdefG_hijkl
             else:
                 if self.password is None:
-                    self.info.setText("尝试密码: {0}".format(passwd))
+                    self.info.setText("尝试密码: {0} 队列长度: {1}".format(passwd, self.queene.qsize()))
 #            time.sleep(0.01)
 #            print("---{0}---".format(passwd))
             
