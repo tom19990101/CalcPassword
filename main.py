@@ -3,7 +3,7 @@ import sys,os,time,copy,json,requests
 import queue, threading
 sys.path.append(os.getcwd())
 from PyQt5.QtWidgets import QMainWindow, QPushButton,QMessageBox,QListView
-from PyQt5 import QtWidgets, Qt
+from PyQt5 import QtWidgets, Qt, QtCore
 from PyQt5.uic import loadUi
 
 class SuccessException(Exception):
@@ -28,6 +28,14 @@ class MainWindow(QMainWindow):
         self.load()
         self.password = None
         self.hasErrors = False
+        self.seedEdit.installEventFilter(self)
+                
+    def eventFilter(self, obj, event):
+        if obj == self.seedEdit:
+            if event.type() == QtCore.QEvent.KeyPress:
+                if event.key() == QtCore.Qt.Key_Return:
+                    self.addSeed()
+        return super(MainWindow, self).eventFilter(obj, event)
     
     def addSeed(self):
         if self.seedEdit.text() is not None and self.seedEdit.text() not in self.getSeedListData():
@@ -106,12 +114,13 @@ class MainWindow(QMainWindow):
         s3 = "停止中"
         self.startCalcBut.setEnabled(False)
         while True:
-            time.sleep(0.01)
+            time.sleep(0.03)
             if not self.queene.empty():
                 self.queene.get()
                 self.info.setText("队列清理...... 长度:{0}".format(self.queene.qsize()))
             else:
                 break
+
         self.startCalcBut.setText("开始计算")
         self.startCalcBut.setEnabled(True)
         
@@ -137,7 +146,7 @@ class MainWindow(QMainWindow):
             "method": method,
             "params": params
         })
-        return requests.post(self.bitcoin_url, auth=(self.bitcoin_rpcuser, self.bitcoin_rpcpassword), data=payload, timeout=5).json()
+        return requests.post(self.bitcoin_url, auth=(self.bitcoin_rpcuser, self.bitcoin_rpcpassword), data=payload, timeout=30).json()
 
     def getSeedListData(self):
         items = []
@@ -150,20 +159,46 @@ class MainWindow(QMainWindow):
         return items
 
     def genMainSeeds(self, seeds, positions):
-        
+
         if self.hasErrors:
             return
-        
-        seed = []
-        for ii in range(len(positions)):
-            seed.append(seeds[positions[ii]])
+
+        while True:
+            for index in range(len(seeds)):
+                positions[0] = index
+                seed = []
+                for ii in range(len(positions)):
+                    seed.append(seeds[positions[ii]])
+                self.parseSeed(seed)
+#                print("-----Seed: {0}".format("".join(seed)))
+
+            ret = True
+            for i in range(1, len(positions)):
+                if positions[i] < len(seeds) - 1:
+                    positions[i] = positions[i] + 1
+                    for ii in range(0, i):
+                        positions[ii] = 0
+                    ret = False
+                    break;
+                
+            if ret:
+                return
+                
+    def parseSeed(self, seed):
         try:
+            if self.hasErrors:
+                return
+            
             s = "".join(seed).lower()
             if s in self.seedsJson['seeds']:
-                self.info.setText("这组种子已经测试过！")
+#                print( "这组种子[{0}]已经测试过！ 测试总的种子数{1} ".format(s))
+#                time.sleep(0.1)
+                try:
+                    self.info.setText("这组种子[{0}]已经测试过！{1}".format(s))
+                except:
+                    pass
             else:
                 self.mainSeeds(s)
-
                 while True:
                     time.sleep(0.1)
                     if self.password is not None or self.hasErrors:
@@ -180,15 +215,7 @@ class MainWindow(QMainWindow):
         except:
             pass
         
-        for i in range(len(positions)):
-            if i < len(seeds):
-                positions[i] = positions[i] + 1
-                if positions[i] < len(seeds):
-                    return self.genMainSeeds(seeds, positions)
-                positions[i] = 0
-            else:
-                positions[i] = 0
-
+        
     def mainCalc(self, seeds):
         
         while True:
@@ -206,20 +233,19 @@ class MainWindow(QMainWindow):
         
 #        seeds = self.getSeedListData()
         if seeds is not None and len(seeds) > 0:
-            for group in range(self.minSeedsGroup, self.maxSeedsGroup):
+            for group in range(self.minSeedsGroup, self.maxSeedsGroup + 1):
                 posit = []
                 for i in range(0,group):
                     posit.append(0)
                 self.genMainSeeds(seeds, posit)
         
-        while True:
-            time.sleep(2)
-            if self.hasErrors:
-                return
-            if self.queene.empty() or self.password is not None:
-                self.startCalcBut.setText("开始计算")
-#                self.startCalcBut.setEnabled(True)
-                break
+#        while True:
+#            time.sleep(2)
+#            if self.hasErrors:
+#                return
+#            if self.queene.empty() or self.password is not None:
+#                self.startCalcBut.setText("开始计算")
+#                break
     
     def addToQueue(self, seed):
         self.queene.put(seed)
@@ -247,6 +273,10 @@ class MainWindow(QMainWindow):
          Abcd AbcD AbCd AbCD ABcd ABcD ABCd ABCD
     """
     def subSeeds(self, seeds, index):
+        
+        if self.hasErrors:
+            return
+        
         for i in range(0,index):
             if not self.isChar(seeds[i]):
                 continue;
